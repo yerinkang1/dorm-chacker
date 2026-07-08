@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>기숙사 입실 자격 판정 도구</title>
+<style>
+  :root{
+    --bg:#f6f7f5;
+    --panel:#ffffff;
+    --ink:#132225;
+    --ink-soft:#5b6b6a;
+    --line:#dfe4e1;
+    --teal:#0f6d63;
+    --teal-deep:#0a4a44;
+    --amber:#b4570f;
+    --amber-bg:#fdf1e6;
+    --ok-bg:#eaf5ee;
+    --ok-ink:#1c6b3a;
+    --no-bg:#fbeceb;
+    --no-ink:#a3352b;
+    --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', 'Segoe UI', sans-serif;
+    line-height:1.5;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:28px 20px 80px;}
+  header.top{
+    display:flex; align-items:baseline; justify-content:space-between; gap:16px;
+    border-bottom:2px solid var(--ink); padding-bottom:16px; margin-bottom:22px; flex-wrap:wrap;
+  }
+  header.top h1{font-size:21px; margin:0; letter-spacing:-0.01em;}
+  header.top .rule{
+    font-size:12.5px; color:var(--ink-soft); font-family:var(--mono);
+    background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:6px 10px;
+  }
+  nav.tabs{display:flex; gap:2px; margin-bottom:20px; border-bottom:1px solid var(--line);}
+  nav.tabs button{
+    appearance:none; border:none; background:transparent; cursor:pointer;
+    padding:10px 16px; font-size:14px; color:var(--ink-soft); border-bottom:2px solid transparent;
+    font-weight:600;
+  }
+  nav.tabs button.active{color:var(--teal-deep); border-bottom-color:var(--teal);}
+  section.panel{
+    background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:22px;
+    margin-bottom:16px;
+  }
+  section.panel h2{font-size:15px; margin:0 0 4px; letter-spacing:-0.01em;}
+  section.panel p.desc{font-size:13px; color:var(--ink-soft); margin:0 0 16px;}
+  .field{margin-bottom:14px;}
+  .field label{display:block; font-size:12.5px; font-weight:600; color:var(--ink-soft); margin-bottom:5px;}
+  .field input[type=text], .field input[type=password], .field textarea{
+    width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:5px; font-size:13.5px;
+    font-family:inherit; background:#fcfcfb;
+  }
+  .field textarea{font-family:var(--mono); font-size:12.5px; resize:vertical;}
+  .field .hint{font-size:11.5px; color:#8a9391; margin-top:4px;}
+  .row{display:flex; gap:10px; flex-wrap:wrap;}
+  .row > *{flex:1; min-width:180px;}
+  button.btn{
+    appearance:none; border:1px solid var(--teal-deep); background:var(--teal);
+    color:#fff; padding:9px 16px; border-radius:5px; font-size:13.5px; font-weight:600; cursor:pointer;
+  }
+  button.btn:hover{background:var(--teal-deep);}
+  button.btn.secondary{background:#fff; color:var(--teal-deep);}
+  button.btn.ghost{background:transparent; border-color:var(--line); color:var(--ink-soft);}
+  button.btn:disabled{opacity:.5; cursor:not-allowed;}
+  button.btn.small{padding:5px 10px; font-size:12px;}
+  table{width:100%; border-collapse:collapse; font-size:12.8px;}
+  table th, table td{text-align:left; padding:8px 9px; border-bottom:1px solid var(--line); vertical-align:top;}
+  table th{font-size:11.5px; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-soft); background:#fafaf8;}
+  table td.num{font-family:var(--mono); white-space:nowrap;}
+  .pill{display:inline-block; padding:2px 9px; border-radius:99px; font-size:11.5px; font-weight:700;}
+  .pill.ok{background:var(--ok-bg); color:var(--ok-ink);}
+  .pill.no{background:var(--no-bg); color:var(--no-ink);}
+  .pill.warn{background:var(--amber-bg); color:var(--amber);}
+  .note{
+    background:var(--amber-bg); border:1px solid #f0d3ae; color:#7a4008; border-radius:6px;
+    padding:12px 14px; font-size:12.5px; margin-bottom:16px;
+  }
+  .note b{color:var(--amber);}
+  .stop-item{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--line);}
+  .stop-item:last-child{border-bottom:none;}
+  .stop-item .meta{font-size:12px; color:var(--ink-soft); font-family:var(--mono);}
+  .route-card{border:1px solid var(--line); border-radius:7px; margin-bottom:14px; overflow:hidden;}
+  .route-head{display:flex; justify-content:space-between; align-items:center; gap:10px; padding:12px 14px; background:#fafaf8; border-bottom:1px solid var(--line);}
+  .route-head .route-title{font-size:14px; font-weight:700; display:flex; align-items:center; gap:8px;}
+  .route-head .route-title .count{font-size:11px; font-weight:600; color:var(--ink-soft); font-family:var(--mono);}
+  .route-body{padding:12px 14px;}
+  .route-actions{display:flex; gap:6px;}
+  .add-stop-row{display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap;}
+  .add-stop-row input{flex:1; min-width:140px; padding:7px 9px; border:1px solid var(--line); border-radius:5px; font-size:13px;}
+  .stop-edit-row{display:flex; gap:8px; flex-wrap:wrap; align-items:center; padding:6px 0;}
+  .stop-edit-row input{flex:1; min-width:120px; padding:6px 8px; border:1px solid var(--line); border-radius:5px; font-size:12.5px;}
+  input[type=text].inline-name{font-weight:700; border:1px solid transparent; background:transparent; font-size:14px; padding:2px 4px;}
+  input[type=text].inline-name:hover, input[type=text].inline-name:focus{border-color:var(--line); background:#fff;}
+  .status{font-size:12.5px; margin-top:8px; color:var(--ink-soft);}
+  .status.err{color:var(--no-ink);}
+  .empty{color:#9aa4a2; font-size:13px; padding:20px 0; text-align:center;}
+  .progress{font-size:12px; color:var(--ink-soft); font-family:var(--mono);}
+  footer.foot{text-align:center; font-size:11.5px; color:#9aa4a2; margin-top:30px;}
+  .badge-eligible-key{display:flex; gap:14px; font-size:11.5px; color:var(--ink-soft); margin-top:10px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <h1>기숙사 입실 자격 판정 도구</h1>
+    <div class="rule">규정: 도보·대중교통(무환승) 둘 다 30분 이상이어야 입실 가능 (대중교통 무환승 경로가 없으면 도보 기준만 적용)</div>
+  </header>
+
+  <div class="note" id="apiWarnNote">
+    <b>안내.</b> 이 도구는 카카오(주소→좌표), ODsay(대중교통 경로) API를 브라우저에서 직접 호출합니다.
+    두 서비스 모두 사전에 등록한 도메인에서만 호출이 허용되므로, 이 파일을 실제로 올릴 도메인을
+    카카오 개발자 콘솔과 ODsay 콘솔의 "플랫폼(Web)"에 등록해야 정상 동작합니다.
+    Claude 미리보기 화면에서는 도메인이 고정되지 않아 API 호출이 막힐 수 있습니다.
+  </div>
+
+  <nav class="tabs">
+    <button data-tab="settings" class="active">설정</button>
+    <button data-tab="stops">셔틀 탑승지 관리</button>
+    <button data-tab="check">입실 자격 판정</button>
+  </nav>
+
+  <!-- SETTINGS -->
+  <section class="panel" id="tab-settings">
+    <h2>API 키 설정</h2>
+    <p class="desc">두 키 모두 이 브라우저(도메인)에만 저장됩니다. 서버로 전송되지 않습니다.</p>
+    <div class="row">
+      <div class="field">
+        <label>카카오 REST API 키</label>
+        <input type="password" id="kakaoKey" placeholder="Kakao Developers > 내 애플리케이션 > REST API 키">
+      </div>
+      <div class="field">
+        <label>ODsay API 키</label>
+        <input type="password" id="odsayKey" placeholder="ODsay LAB > 애플리케이션 > API 키">
+      </div>
+    </div>
+    <button class="btn" id="saveKeysBtn">저장</button>
+    <span class="status" id="keyStatus"></span>
+
+    <div style="margin-top:22px; border-top:1px solid var(--line); padding-top:16px;">
+      <h2>판정 기준 (조정 가능)</h2>
+      <p class="desc">도보 소요시간은 직선거리 기반 추정치(우회계수 1.3, 도보속도 분당 67m)이며, 대중교통은 환승 없이 이동 가능한 노선 중 최소 소요시간입니다.
+      <br>판정: 도보와 대중교통(무환승) 둘 다 기준 시간 이상이면 입실 가능, 하나라도 미만이면 불가능. 무환승 대중교통 경로가 없는 경우엔 도보 기준만으로 판정합니다.</p>
+      <div class="row">
+        <div class="field">
+          <label>입실 가능 기준 (분)</label>
+          <input type="text" id="thresholdMin" value="30">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- STOPS -->
+  <section class="panel" id="tab-stops" style="display:none;">
+    <h2>셔틀버스 노선 및 탑승지 등록</h2>
+    <p class="desc">노선을 먼저 만들고, 그 안에 탑승지를 추가하세요. 이후 노선 개편으로 탑승지가 바뀌면 각 탑승지를 개별 수정하거나 삭제/추가할 수 있습니다.</p>
+
+    <div class="row">
+      <div class="field">
+        <label>새 노선 이름</label>
+        <input type="text" id="routeName" placeholder="예: 1호차 (강남·판교 방면)">
+      </div>
+    </div>
+    <button class="btn" id="addRouteBtn">노선 추가</button>
+    <span class="status" id="routeStatus"></span>
+
+    <div style="margin-top:20px;" id="routeList"></div>
+  </section>
+
+  <!-- CHECK -->
+  <section class="panel" id="tab-check" style="display:none;">
+    <h2>직원 주소 판정</h2>
+    <p class="desc">한 줄에 한 명씩 입력하세요. 형식: <code>이름,주소</code> (이름 생략 시 주소만 입력해도 됩니다)</p>
+    <div class="field">
+      <textarea id="addrInput" rows="6" placeholder="홍길동,서울 마포구 월드컵북로 396&#10;김철수,경기 성남시 분당구 판교역로 235&#10;서울 송파구 올림픽로 300"></textarea>
+    </div>
+    <div class="row">
+      <button class="btn" id="checkBtn">판정 실행</button>
+      <button class="btn secondary" id="exportBtn" disabled>CSV로 내보내기</button>
+      <button class="btn ghost" id="clearResultBtn" disabled>결과 지우기</button>
+    </div>
+    <div class="progress" id="progressText"></div>
+
+    <div style="margin-top:18px; overflow-x:auto;" id="resultWrap"></div>
+  </section>
+
+  <footer class="foot">사내용 도구 · 좌표/경로 데이터는 카카오·ODsay API 결과에 따르며, 도보 소요시간은 추정치입니다.</footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- storage ----------
+  const LS_KEYS = {kakao:'dorm_kakao_key', odsay:'dorm_odsay_key', routes:'dorm_shuttle_routes', legacyStops:'dorm_shuttle_stops', threshold:'dorm_threshold_min'};
+  function lsGet(key, fallback){
+    try{ const v = localStorage.getItem(key); return v===null ? fallback : v; }
+    catch(e){ return fallback; }
+  }
+  function lsSet(key, val){
+    try{ localStorage.setItem(key, val); }catch(e){ /* storage unavailable (e.g. sandboxed preview) */ }
+  }
+  function genId(){
+    return 'id_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8);
+  }
+
+  function loadRoutes(){
+    const stored = lsGet(LS_KEYS.routes, null);
+    if(stored) return JSON.parse(stored);
+    // 이전 버전(노선 없이 탑승지만 저장)이 있으면 "기존 탑승지" 노선으로 이관
+    const legacy = JSON.parse(lsGet(LS_KEYS.legacyStops, '[]'));
+    if(legacy.length > 0){
+      return [{ id: genId(), name: '기존 탑승지', stops: legacy.map(s => ({ id: genId(), ...s })) }];
+    }
+    return [];
+  }
+
+  let state = {
+    kakaoKey: lsGet(LS_KEYS.kakao, ''),
+    odsayKey: lsGet(LS_KEYS.odsay, ''),
+    routes: loadRoutes(),
+    threshold: parseInt(lsGet(LS_KEYS.threshold, '30'), 10) || 30,
+    results: []
+  };
+  function saveRoutes(){ lsSet(LS_KEYS.routes, JSON.stringify(state.routes)); }
+
+  // ---------- tabs ----------
+  document.querySelectorAll('nav.tabs button').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      ['settings','stops','check'].forEach(t=>{
+        document.getElementById('tab-'+t).style.display = (t===btn.dataset.tab) ? 'block' : 'none';
+      });
+    });
+  });
+
+  // ---------- settings ----------
+  document.getElementById('kakaoKey').value = state.kakaoKey;
+  document.getElementById('odsayKey').value = state.odsayKey;
+  document.getElementById('thresholdMin').value = state.threshold;
+
+  document.getElementById('saveKeysBtn').addEventListener('click', ()=>{
+    state.kakaoKey = document.getElementById('kakaoKey').value.trim();
+    state.odsayKey = document.getElementById('odsayKey').value.trim();
+    state.threshold = parseInt(document.getElementById('thresholdMin').value, 10) || 30;
+    lsSet(LS_KEYS.kakao, state.kakaoKey);
+    lsSet(LS_KEYS.odsay, state.odsayKey);
+    lsSet(LS_KEYS.threshold, String(state.threshold));
+    const s = document.getElementById('keyStatus');
+    s.textContent = '저장되었습니다.';
+    s.className = 'status';
+    setTimeout(()=>{ s.textContent=''; }, 2500);
+  });
+
+  // ---------- geocoding (Kakao) ----------
+  async function geocodeAddress(address){
+    if(!state.kakaoKey) throw new Error('카카오 API 키가 설정되지 않았습니다. (설정 탭)');
+    const url = 'https://dapi.kakao.com/v2/local/search/address.json?query=' + encodeURIComponent(address);
+    const res = await fetch(url, { headers: { 'Authorization': 'KakaoAK ' + state.kakaoKey } });
+    if(!res.ok){
+      if(res.status === 401 || res.status === 403) throw new Error('카카오 API 인증 실패 (키 또는 도메인 등록 확인)');
+      throw new Error('카카오 API 오류: HTTP ' + res.status);
+    }
+    const data = await res.json();
+    if(!data.documents || data.documents.length === 0) throw new Error('주소를 찾을 수 없습니다: ' + address);
+    const doc = data.documents[0];
+    return { lat: parseFloat(doc.y), lng: parseFloat(doc.x) };
+  }
+
+  // ---------- distance ----------
+  function haversineMeters(lat1, lng1, lat2, lng2){
+    const R = 6371000;
+    const toRad = d => d * Math.PI / 180;
+    const dLat = toRad(lat2-lat1), dLng = toRad(lng2-lng1);
+    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+
+  function estimateWalkMinutes(distanceMeters){
+    const DETOUR = 1.3;     // 실제 도로/보행로는 직선거리보다 길다는 가정의 보정계수
+    const SPEED_M_PER_MIN = 67; // 성인 평균 도보속도 약 4km/h
+    return Math.round((distanceMeters * DETOUR) / SPEED_M_PER_MIN);
+  }
+
+  function allStopsFlat(){
+    const flat = [];
+    for(const r of state.routes){
+      for(const s of r.stops){
+        flat.push({ ...s, routeName: r.name, routeId: r.id });
+      }
+    }
+    return flat;
+  }
+
+  function findNearestStop(lat, lng){
+    const flat = allStopsFlat();
+    if(flat.length === 0) return null;
+    let best = null, bestDist = Infinity;
+    for(const s of flat){
+      const d = haversineMeters(lat, lng, s.lat, s.lng);
+      if(d < bestDist){ bestDist = d; best = s; }
+    }
+    return { stop: best, distanceMeters: bestDist };
+  }
+
+  // ---------- transit (ODsay), no-transfer routes only ----------
+  async function getTransitNoTransfer(fromLat, fromLng, toLat, toLng){
+    if(!state.odsayKey) return { available:false, reason:'ODsay API 키가 설정되지 않았습니다.' };
+    const url = 'https://api.odsay.com/v1/api/searchPubTransPathT'
+      + '?SX=' + fromLng + '&SY=' + fromLat + '&EX=' + toLng + '&EY=' + toLat
+      + '&apiKey=' + encodeURIComponent(state.odsayKey);
+    let data;
+    try{
+      const res = await fetch(url);
+      data = await res.json();
+    }catch(e){
+      return { available:false, reason:'ODsay API 호출 실패 (네트워크/CORS)' };
+    }
+    if(data.error){
+      return { available:false, reason: 'ODsay 오류: ' + (data.error.msg || JSON.stringify(data.error)) };
+    }
+    if(!data.result || !data.result.path || data.result.path.length === 0){
+      return { available:false, reason:'대중교통 경로 없음' };
+    }
+    let candidates = [];
+    for(const p of data.result.path){
+      const legs = (p.subPath || []).filter(sp => sp.trafficType === 1 || sp.trafficType === 2); // 1:지하철 2:버스
+      if(legs.length === 1 && p.info && typeof p.info.totalTime === 'number'){
+        candidates.push(p.info.totalTime);
+      }
+    }
+    if(candidates.length === 0){
+      return { available:false, reason:'환승 없이 이동 가능한 노선 없음' };
+    }
+    return { available:true, minutes: Math.min(...candidates) };
+  }
+
+  // ---------- routes & stops UI ----------
+  function escapeHtml(str){
+    return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  let editingStop = null; // {routeId, stopId} | null
+
+  function renderRoutes(){
+    const el = document.getElementById('routeList');
+    if(state.routes.length === 0){
+      el.innerHTML = '<div class="empty">등록된 노선이 없습니다. 위에서 노선을 먼저 추가하세요.</div>';
+      return;
+    }
+    el.innerHTML = state.routes.map(route => `
+      <div class="route-card" data-route-id="${route.id}">
+        <div class="route-head">
+          <div class="route-title">
+            <input type="text" class="inline-name" data-action="rename-route" data-route-id="${route.id}" value="${escapeHtml(route.name)}">
+            <span class="count">탑승지 ${route.stops.length}곳</span>
+          </div>
+          <div class="route-actions">
+            <button class="btn ghost small" data-action="del-route" data-route-id="${route.id}">노선 삭제</button>
+          </div>
+        </div>
+        <div class="route-body">
+          <div class="add-stop-row">
+            <input type="text" placeholder="탑승지 이름" data-role="new-stop-name" data-route-id="${route.id}">
+            <input type="text" placeholder="탑승지 주소" data-role="new-stop-address" data-route-id="${route.id}">
+            <button class="btn small" data-action="add-stop" data-route-id="${route.id}">탑승지 추가</button>
+          </div>
+          <div class="status" data-status-for="${route.id}"></div>
+          ${route.stops.length === 0
+            ? '<div class="empty">아직 탑승지가 없습니다.</div>'
+            : route.stops.map(s => renderStopRow(route.id, s)).join('')}
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function renderStopRow(routeId, stop){
+    if(editingStop && editingStop.routeId === routeId && editingStop.stopId === stop.id){
+      return `
+        <div class="stop-edit-row" data-stop-id="${stop.id}">
+          <input type="text" data-role="edit-name" value="${escapeHtml(stop.name)}">
+          <input type="text" data-role="edit-address" value="${escapeHtml(stop.address)}">
+          <button class="btn small" data-action="save-stop" data-route-id="${routeId}" data-stop-id="${stop.id}">저장</button>
+          <button class="btn ghost small" data-action="cancel-edit-stop">취소</button>
+        </div>`;
+    }
+    return `
+      <div class="stop-item" data-stop-id="${stop.id}">
+        <div>
+          <div><strong>${escapeHtml(stop.name)}</strong></div>
+          <div class="meta">${escapeHtml(stop.address)} · ${stop.lat.toFixed(5)}, ${stop.lng.toFixed(5)}</div>
+        </div>
+        <div class="route-actions">
+          <button class="btn ghost small" data-action="edit-stop" data-route-id="${routeId}" data-stop-id="${stop.id}">수정</button>
+          <button class="btn ghost small" data-action="del-stop" data-route-id="${routeId}" data-stop-id="${stop.id}">삭제</button>
+        </div>
+      </div>`;
+  }
+
+  function findRoute(routeId){ return state.routes.find(r => r.id === routeId); }
+  function setRouteStatus(routeId, text, isErr){
+    const s = document.querySelector(`[data-status-for="${routeId}"]`);
+    if(!s) return;
+    s.textContent = text;
+    s.className = 'status' + (isErr ? ' err' : '');
+  }
+
+  document.getElementById('addRouteBtn').addEventListener('click', ()=>{
+    const nameInput = document.getElementById('routeName');
+    const name = nameInput.value.trim();
+    const statusEl = document.getElementById('routeStatus');
+    if(!name){ statusEl.textContent = '노선 이름을 입력하세요.'; statusEl.className = 'status err'; return; }
+    state.routes.push({ id: genId(), name, stops: [] });
+    saveRoutes();
+    nameInput.value = '';
+    statusEl.textContent = '노선이 추가되었습니다.'; statusEl.className = 'status';
+    renderRoutes();
+  });
+
+  document.getElementById('routeList').addEventListener('click', async (e)=>{
+    const btn = e.target.closest('button[data-action]');
+    if(!btn) return;
+    const action = btn.dataset.action;
+    const routeId = btn.dataset.routeId;
+
+    if(action === 'del-route'){
+      const route = findRoute(routeId);
+      if(route && confirm(`"${route.name}" 노선과 그 안의 탑승지 ${route.stops.length}곳을 모두 삭제할까요?`)){
+        state.routes = state.routes.filter(r => r.id !== routeId);
+        saveRoutes();
+        renderRoutes();
+      }
+      return;
+    }
+
+    if(action === 'add-stop'){
+      const route = findRoute(routeId);
+      const nameInput = document.querySelector(`[data-role="new-stop-name"][data-route-id="${routeId}"]`);
+      const addrInput = document.querySelector(`[data-role="new-stop-address"][data-route-id="${routeId}"]`);
+      const name = nameInput.value.trim();
+      const address = addrInput.value.trim();
+      if(!name || !address){ setRouteStatus(routeId, '탑승지 이름과 주소를 모두 입력하세요.', true); return; }
+      setRouteStatus(routeId, '좌표 변환 중...', false);
+      try{
+        const coord = await geocodeAddress(address);
+        route.stops.push({ id: genId(), name, address, lat: coord.lat, lng: coord.lng });
+        saveRoutes();
+        renderRoutes();
+        setRouteStatus(routeId, '탑승지가 추가되었습니다.', false);
+      }catch(err){
+        setRouteStatus(routeId, err.message, true);
+      }
+      return;
+    }
+
+    if(action === 'edit-stop'){
+      editingStop = { routeId, stopId: btn.dataset.stopId };
+      renderRoutes();
+      return;
+    }
+
+    if(action === 'cancel-edit-stop'){
+      editingStop = null;
+      renderRoutes();
+      return;
+    }
+
+    if(action === 'del-stop'){
+      const route = findRoute(routeId);
+      route.stops = route.stops.filter(s => s.id !== btn.dataset.stopId);
+      saveRoutes();
+      renderRoutes();
+      return;
+    }
+
+    if(action === 'save-stop'){
+      const route = findRoute(routeId);
+      const stopId = btn.dataset.stopId;
+      const stop = route.stops.find(s => s.id === stopId);
+      const row = btn.closest('.stop-edit-row');
+      const newName = row.querySelector('[data-role="edit-name"]').value.trim();
+      const newAddress = row.querySelector('[data-role="edit-address"]').value.trim();
+      if(!newName || !newAddress){ alert('이름과 주소를 모두 입력하세요.'); return; }
+      btn.disabled = true; btn.textContent = '저장 중...';
+      try{
+        if(newAddress !== stop.address){
+          const coord = await geocodeAddress(newAddress);
+          stop.lat = coord.lat; stop.lng = coord.lng;
+        }
+        stop.name = newName;
+        stop.address = newAddress;
+        saveRoutes();
+        editingStop = null;
+        renderRoutes();
+      }catch(err){
+        alert(err.message);
+        btn.disabled = false; btn.textContent = '저장';
+      }
+      return;
+    }
+  });
+
+  // 노선 이름 변경 (input blur 시 저장)
+  document.getElementById('routeList').addEventListener('focusout', (e)=>{
+    const input = e.target.closest('input[data-action="rename-route"]');
+    if(!input) return;
+    const route = findRoute(input.dataset.routeId);
+    const newName = input.value.trim();
+    if(route && newName && newName !== route.name){
+      route.name = newName;
+      saveRoutes();
+    }
+  });
+
+  renderRoutes();
+
+  // ---------- check / judge ----------
+  function parseInputLines(raw){
+    return raw.split('\n').map(l=>l.trim()).filter(Boolean).map(line=>{
+      const idx = line.indexOf(',');
+      if(idx === -1) return { name:'', address: line };
+      return { name: line.slice(0,idx).trim(), address: line.slice(idx+1).trim() };
+    });
+  }
+
+  function renderResults(){
+    const wrap = document.getElementById('resultWrap');
+    if(state.results.length === 0){
+      wrap.innerHTML = '<div class="empty">판정 결과가 없습니다.</div>';
+      return;
+    }
+    const rows = state.results.map(r=>{
+      if(r.error){
+        return `<tr>
+          <td>${escapeHtml(r.name||'-')}</td>
+          <td>${escapeHtml(r.address)}</td>
+          <td colspan="6" style="color:#a3352b;">오류: ${escapeHtml(r.error)}</td>
+        </tr>`;
+      }
+      const pill = r.eligible
+        ? '<span class="pill ok">입실 가능</span>'
+        : '<span class="pill no">입실 불가</span>';
+      const fallbackNote = !r.transit.available
+        ? '<div style="font-size:11px;color:#8a9391;margin-top:2px;">(도보 기준만 적용)</div>' : '';
+      const transitCell = r.transit.available
+        ? r.transit.minutes + '분'
+        : `<span style="color:#9aa4a2;">${escapeHtml(r.transit.reason||'해당없음')}</span>`;
+      return `<tr>
+        <td>${escapeHtml(r.name||'-')}</td>
+        <td>${escapeHtml(r.address)}</td>
+        <td>${escapeHtml(r.routeName)}</td>
+        <td>${escapeHtml(r.stopName)}</td>
+        <td class="num">${r.distanceMeters.toFixed(0)}m</td>
+        <td class="num">${r.walkMinutes}분</td>
+        <td class="num">${transitCell}</td>
+        <td>${pill}${fallbackNote}</td>
+      </tr>`;
+    }).join('');
+    wrap.innerHTML = `<table>
+      <thead><tr>
+        <th>이름</th><th>주소</th><th>노선</th><th>최근접 탑승지</th><th>직선거리</th>
+        <th>도보(추정)</th><th>대중교통(무환승)</th><th>판정</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }
+
+  document.getElementById('checkBtn').addEventListener('click', async ()=>{
+    const raw = document.getElementById('addrInput').value;
+    const entries = parseInputLines(raw);
+    const progressEl = document.getElementById('progressText');
+    const checkBtn = document.getElementById('checkBtn');
+
+    if(entries.length === 0){ progressEl.textContent = '입력된 주소가 없습니다.'; return; }
+    if(allStopsFlat().length === 0){ progressEl.textContent = '먼저 셔틀 노선과 탑승지를 하나 이상 등록하세요.'; return; }
+
+    checkBtn.disabled = true;
+    state.results = [];
+    for(let i=0; i<entries.length; i++){
+      progressEl.textContent = `판정 중... (${i+1}/${entries.length}) ${entries[i].address}`;
+      const entry = entries[i];
+      try{
+        const coord = await geocodeAddress(entry.address);
+        const nearest = findNearestStop(coord.lat, coord.lng);
+        const walkMinutes = estimateWalkMinutes(nearest.distanceMeters);
+        const transit = await getTransitNoTransfer(coord.lat, coord.lng, nearest.stop.lat, nearest.stop.lng);
+        // 판정 규칙: 도보와 대중교통(무환승) 둘 다 기준 이상이어야 입실 가능(둘 중 하나라도 미만이면 불가).
+        // 단, 무환승 대중교통 경로 자체가 없는 경우(거리가 가깝거나 대중교통 미비 지역)에는
+        // 대중교통 조건은 제외하고 도보 소요시간만으로 판정한다.
+        const eligible = transit.available
+          ? (walkMinutes >= state.threshold && transit.minutes >= state.threshold)
+          : (walkMinutes >= state.threshold);
+        state.results.push({
+          name: entry.name, address: entry.address,
+          routeName: nearest.stop.routeName,
+          stopName: nearest.stop.name,
+          distanceMeters: nearest.distanceMeters,
+          walkMinutes, transit, eligible
+        });
+      }catch(err){
+        state.results.push({ name: entry.name, address: entry.address, error: err.message });
+      }
+      renderResults();
+    }
+    progressEl.textContent = `완료: 총 ${entries.length}건 처리`;
+    checkBtn.disabled = false;
+    document.getElementById('exportBtn').disabled = false;
+    document.getElementById('clearResultBtn').disabled = false;
+  });
+
+  document.getElementById('clearResultBtn').addEventListener('click', ()=>{
+    state.results = [];
+    renderResults();
+    document.getElementById('progressText').textContent = '';
+    document.getElementById('exportBtn').disabled = true;
+    document.getElementById('clearResultBtn').disabled = true;
+  });
+
+  document.getElementById('exportBtn').addEventListener('click', ()=>{
+    const header = ['이름','주소','노선','최근접탑승지','직선거리(m)','도보소요(분,추정)','대중교통소요(분,무환승)','판정','비고'];
+    const lines = [header.join(',')];
+    for(const r of state.results){
+      if(r.error){
+        lines.push([r.name, r.address, '', '', '', '', '', '오류', r.error].map(csvEscape).join(','));
+        continue;
+      }
+      lines.push([
+        r.name, r.address, r.routeName, r.stopName,
+        r.distanceMeters.toFixed(0),
+        r.walkMinutes,
+        r.transit.available ? r.transit.minutes : '',
+        r.eligible ? '입실가능' : '입실불가',
+        r.transit.available ? '' : (r.transit.reason || '')
+      ].map(csvEscape).join(','));
+    }
+    const csv = '\uFEFF' + lines.join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '기숙사_입실판정_' + new Date().toISOString().slice(0,10) + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+  function csvEscape(v){
+    const s = String(v ?? '');
+    if(/[",\n]/.test(s)) return '"' + s.replace(/"/g,'""') + '"';
+    return s;
+  }
+
+  renderResults();
+})();
+</script>
+</body>
+</html>
