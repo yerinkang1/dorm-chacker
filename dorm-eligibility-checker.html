@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>기숙사 입실 자격 판정 도구</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     --bg:#f6f7f5;
@@ -172,25 +171,45 @@
     <span class="status" id="routeStatus"></span>
 
     <div style="margin-top:22px; border:1px dashed var(--line); border-radius:7px; padding:16px;">
-      <h2 style="margin-bottom:6px;">엑셀로 한번에 등록</h2>
-      <p class="desc">엑셀(.xlsx/.csv) 파일의 A열=노선명, B열=탑승지명, C열=탑승지 주소 순서로 입력해서 업로드하세요. <b>C열(주소)은 비워도 됩니다</b> — 비어있으면 B열(탑승지명)을 그대로 검색해서 "인천대입구역"처럼 역명·건물명만으로도 자동으로 실제 주소를 찾습니다. 같은 노선명은 자동으로 합쳐집니다. 500건이면 몇 분 정도 걸릴 수 있어요.</p>
-      <div class="row">
-        <div class="field">
-          <label>파일 선택</label>
-          <input type="file" id="bulkFileInput" accept=".xlsx,.xls,.csv">
-        </div>
+      <h2 style="margin-bottom:6px;">엑셀 표 붙여넣기로 한번에 등록</h2>
+      <p class="desc">엑셀에서 <b>노선명 / 탑승지명 / 탑승지 주소</b> 3개 열을 선택해 복사(Ctrl+C)한 다음, 아래 칸에 붙여넣으세요(Ctrl+V). 파일 업로드 없이 바로 처리됩니다. <b>주소 칸은 비워도 됩니다</b> — 비어있으면 탑승지명을 그대로 검색해서 "인천대입구역"처럼 역명·건물명만으로도 자동으로 실제 주소를 찾습니다. 같은 노선명은 자동으로 합쳐집니다. 500건이면 몇 분 정도 걸릴 수 있어요.</p>
+      <div class="field">
+        <textarea id="bulkPasteArea" rows="8" placeholder="1호차 (강남·판교 방면)	강남역 3번 출구	서울 강남구 강남대로 396&#10;1호차 (강남·판교 방면)	판교역	경기 성남시 분당구 판교역로 235&#10;2호차 (송파 방면)	잠실역"></textarea>
+        <div class="hint">엑셀에서 그대로 복사해 붙여넣으면 열 구분이 자동으로 인식됩니다.</div>
       </div>
       <div class="row" style="align-items:center;">
         <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink-soft); flex:none;">
-          <input type="checkbox" id="bulkHasHeader" checked style="width:auto;"> 첫 번째 행은 제목(헤더)이라 건너뛰기
+          <input type="checkbox" id="bulkPasteHasHeader" style="width:auto;"> 첫 번째 행은 제목(헤더)이라 건너뛰기
         </label>
       </div>
       <div class="row">
-        <button class="btn" id="bulkUploadBtn">일괄 등록 실행</button>
-        <button class="btn ghost" id="downloadTemplateBtn">샘플 양식 다운로드</button>
+        <button class="btn" id="bulkPasteBtn">붙여넣은 표 등록</button>
       </div>
-      <div class="progress" id="bulkProgress"></div>
-      <div class="status" id="bulkStatus"></div>
+      <div class="progress" id="bulkPasteProgress"></div>
+      <div class="status" id="bulkPasteStatus"></div>
+
+      <details style="margin-top:16px;">
+        <summary style="cursor:pointer; font-size:12.5px; color:var(--ink-soft);">파일로 업로드하고 싶다면 (사내 정책상 파일 업로드가 막혀있으면 위쪽 붙여넣기 방식을 쓰세요)</summary>
+        <div style="margin-top:12px;">
+          <div class="row">
+            <div class="field">
+              <label>파일 선택 (.xlsx/.xls/.csv)</label>
+              <input type="file" id="bulkFileInput" accept=".xlsx,.xls,.csv">
+            </div>
+          </div>
+          <div class="row" style="align-items:center;">
+            <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink-soft); flex:none;">
+              <input type="checkbox" id="bulkHasHeader" checked style="width:auto;"> 첫 번째 행은 제목(헤더)이라 건너뛰기
+            </label>
+          </div>
+          <div class="row">
+            <button class="btn" id="bulkUploadBtn">파일로 일괄 등록</button>
+            <button class="btn ghost" id="downloadTemplateBtn">샘플 양식 다운로드</button>
+          </div>
+          <div class="progress" id="bulkProgress"></div>
+          <div class="status" id="bulkStatus"></div>
+        </div>
+      </details>
     </div>
 
     <div style="margin-top:20px;" id="routeList"></div>
@@ -231,6 +250,38 @@
   }
   function genId(){
     return 'id_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8);
+  }
+
+  // ---------- XLSX 라이브러리 동적 로드 (사내망에서 특정 CDN이 막혀있을 수 있어 여러 곳을 순서대로 시도) ----------
+  const XLSX_CDN_URLS = [
+    'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+    'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+    'https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js'
+  ];
+  let xlsxLoadPromise = null;
+  function loadScriptTag(url){
+    return new Promise((resolve, reject)=>{
+      const s = document.createElement('script');
+      s.src = url;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error('로드 실패: ' + url));
+      document.head.appendChild(s);
+    });
+  }
+  function ensureXLSX(){
+    if(typeof XLSX !== 'undefined') return Promise.resolve();
+    if(xlsxLoadPromise) return xlsxLoadPromise;
+    xlsxLoadPromise = (async ()=>{
+      for(const url of XLSX_CDN_URLS){
+        try{
+          await loadScriptTag(url);
+          if(typeof XLSX !== 'undefined') return;
+        }catch(e){ /* 다음 CDN 시도 */ }
+      }
+      xlsxLoadPromise = null;
+      throw new Error('엑셀 처리 라이브러리를 어떤 경로로도 불러오지 못했습니다. 사내 네트워크가 외부 CDN(cdnjs.cloudflare.com, cdn.jsdelivr.net, unpkg.com) 접속을 모두 차단하고 있을 수 있습니다. IT팀에 이 중 한 곳만이라도 접속 허용을 요청해주세요.');
+    })();
+    return xlsxLoadPromise;
   }
 
   function loadRoutes(){
@@ -572,7 +623,14 @@
   renderRoutes();
 
   // ---------- bulk upload (엑셀/CSV로 노선·탑승지 한번에 등록) ----------
-  document.getElementById('downloadTemplateBtn').addEventListener('click', ()=>{
+  document.getElementById('downloadTemplateBtn').addEventListener('click', async ()=>{
+    const statusEl = document.getElementById('bulkStatus');
+    try{
+      await ensureXLSX();
+    }catch(err){
+      statusEl.textContent = err.message; statusEl.className = 'status err';
+      return;
+    }
     const wsData = [
       ['노선명', '탑승지명', '탑승지 주소'],
       ['1호차 (강남·판교 방면)', '강남역 3번 출구', '서울 강남구 강남대로 396'],
@@ -585,49 +643,23 @@
     XLSX.writeFile(wb, '셔틀탑승지_등록양식.xlsx');
   });
 
-  document.getElementById('bulkUploadBtn').addEventListener('click', async ()=>{
-    const fileInput = document.getElementById('bulkFileInput');
-    const progressEl = document.getElementById('bulkProgress');
-    const statusEl = document.getElementById('bulkStatus');
-    const uploadBtn = document.getElementById('bulkUploadBtn');
-    statusEl.textContent = ''; statusEl.className = 'status';
+  // rows: [{routeName, stopName, address}] / els: {progressEl, statusEl, btn, resetInput}
+  async function processBulkRows(rows, els){
+    const { progressEl, statusEl, btn, resetInput } = els;
+    if(rows.length === 0){ statusEl.textContent = '처리할 행이 없습니다. 형식을 확인하세요.'; statusEl.className = 'status err'; return; }
 
-    const file = fileInput.files && fileInput.files[0];
-    if(!file){ statusEl.textContent = '파일을 먼저 선택하세요.'; statusEl.className = 'status err'; return; }
-    if(!state.kakaoKey){ statusEl.textContent = '카카오 API 키가 설정되지 않았습니다. (설정 탭)'; statusEl.className = 'status err'; return; }
-
-    let rows;
-    try{
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array' });
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
-    }catch(err){
-      statusEl.textContent = '파일을 읽을 수 없습니다: ' + err.message; statusEl.className = 'status err';
-      return;
-    }
-
-    if(document.getElementById('bulkHasHeader').checked && rows.length > 0){
-      rows = rows.slice(1);
-    }
-    rows = rows
-      .map(r => ({ routeName: String(r[0]||'').trim(), stopName: String(r[1]||'').trim(), address: String(r[2]||'').trim() }))
-      .filter(r => r.routeName || r.stopName || r.address);
-
-    if(rows.length === 0){ statusEl.textContent = '처리할 행이 없습니다. 양식을 확인하세요.'; statusEl.className = 'status err'; return; }
-
-    uploadBtn.disabled = true;
+    btn.disabled = true;
     const failed = [];
     let successCount = 0;
     let keywordMatchCount = 0;
 
     for(let i=0; i<rows.length; i++){
       const row = rows[i];
-      const rowNum = i + 1 + (document.getElementById('bulkHasHeader').checked ? 1 : 0);
+      const rowNum = i + 1;
       progressEl.textContent = `처리 중... (${i+1}/${rows.length}) ${row.routeName} / ${row.stopName}`;
 
       if(!row.routeName || !row.stopName){
-        failed.push(`${rowNum}행: 노선명 또는 탑승지명이 비어 있음`);
+        failed.push(`${rowNum}번째 행: 노선명 또는 탑승지명이 비어 있음`);
         continue;
       }
       const query = row.address || row.stopName; // 주소가 비어있으면 탑승지명으로 검색
@@ -642,15 +674,15 @@
         route.stops.push({ id: genId(), name: row.stopName, address: coord.resolvedAddress || query, lat: coord.lat, lng: coord.lng });
         successCount++;
       }catch(err){
-        failed.push(`${rowNum}행 (${row.stopName}): ${err.message}`);
+        failed.push(`${rowNum}번째 행 (${row.stopName}): ${err.message}`);
       }
     }
 
     saveRoutes();
     renderRoutes();
     progressEl.textContent = '';
-    uploadBtn.disabled = false;
-    fileInput.value = '';
+    btn.disabled = false;
+    if(resetInput) resetInput();
 
     const keywordNote = keywordMatchCount > 0
       ? ` (이 중 ${keywordMatchCount}건은 주소가 아닌 역명/장소명으로 검색되어 자동으로 실제 주소를 찾았습니다. 결과가 엉뚱한 곳이 없는지 목록에서 한 번 확인해보세요.)`
@@ -663,6 +695,100 @@
       statusEl.innerHTML = `${successCount}건 등록, ${failed.length}건 실패${keywordNote}<br>` + failed.map(escapeHtml).join('<br>');
       statusEl.className = 'status err';
     }
+  }
+
+  // ---------- 붙여넣기로 일괄 등록 (파일 업로드 없이, 엑셀에서 복사한 표를 그대로 파싱) ----------
+  function parsePastedTable(text){
+    const lines = text.split(/\r\n|\r|\n/).filter(l => l.trim() !== '');
+    return lines.map(line=>{
+      // 엑셀에서 복사하면 탭으로 구분됨. 탭이 없으면 콤마, 그것도 없으면 '/'를 구분자로 시도.
+      let cells;
+      if(line.includes('\t')) cells = line.split('\t');
+      else if(line.includes(',')) cells = line.split(',');
+      else if(line.includes('/')) cells = line.split('/');
+      else cells = [line];
+      return {
+        routeName: String(cells[0]||'').trim(),
+        stopName: String(cells[1]||'').trim(),
+        address: String(cells[2]||'').trim()
+      };
+    }).filter(r => r.routeName || r.stopName || r.address);
+  }
+
+  document.getElementById('bulkPasteBtn').addEventListener('click', async ()=>{
+    const textarea = document.getElementById('bulkPasteArea');
+    const progressEl = document.getElementById('bulkPasteProgress');
+    const statusEl = document.getElementById('bulkPasteStatus');
+    const btn = document.getElementById('bulkPasteBtn');
+    statusEl.textContent = ''; statusEl.className = 'status';
+
+    if(!state.kakaoKey){ statusEl.textContent = '카카오 API 키가 설정되지 않았습니다. (설정 탭)'; statusEl.className = 'status err'; return; }
+
+    let rows = parsePastedTable(textarea.value);
+    if(document.getElementById('bulkPasteHasHeader').checked && rows.length > 0){
+      rows = rows.slice(1);
+    }
+    if(rows.length === 0){ statusEl.textContent = '붙여넣은 내용이 없습니다.'; statusEl.className = 'status err'; return; }
+
+    await processBulkRows(rows, {
+      progressEl, statusEl, btn,
+      resetInput: () => { textarea.value = ''; }
+    });
+  });
+
+  document.getElementById('bulkUploadBtn').addEventListener('click', async ()=>{
+    const fileInput = document.getElementById('bulkFileInput');
+    const progressEl = document.getElementById('bulkProgress');
+    const statusEl = document.getElementById('bulkStatus');
+    const uploadBtn = document.getElementById('bulkUploadBtn');
+    statusEl.textContent = ''; statusEl.className = 'status';
+
+    const file = fileInput.files && fileInput.files[0];
+    if(!file){ statusEl.textContent = '파일을 먼저 선택하세요.'; statusEl.className = 'status err'; return; }
+    if(!state.kakaoKey){ statusEl.textContent = '카카오 API 키가 설정되지 않았습니다. (설정 탭)'; statusEl.className = 'status err'; return; }
+    progressEl.textContent = '엑셀 처리 라이브러리 불러오는 중...';
+    try{
+      await ensureXLSX();
+    }catch(err){
+      progressEl.textContent = '';
+      statusEl.textContent = err.message; statusEl.className = 'status err';
+      return;
+    }
+    progressEl.textContent = '';
+
+    let rows;
+    try{
+      const buf = await file.arrayBuffer();
+      if(buf.byteLength === 0){
+        throw new Error('파일 내용이 비어 있습니다. 파일이 제대로 선택되었는지 확인하세요.');
+      }
+      let wb;
+      try{
+        wb = XLSX.read(buf, { type: 'array' });
+      }catch(readErr){
+        throw new Error('엑셀 파일 형식을 인식할 수 없습니다. 암호가 걸려있거나 손상된 파일일 수 있습니다. (' + readErr.message + ')');
+      }
+      if(!wb.SheetNames || wb.SheetNames.length === 0){
+        throw new Error('파일 안에서 시트를 찾을 수 없습니다. 암호가 걸려있거나, 다른 프로그램에서 만든 파일일 수 있습니다. Excel에서 다시 "다른 이름으로 저장 > Excel 통합 문서(.xlsx)"로 저장해서 시도해보세요.');
+      }
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    }catch(err){
+      statusEl.textContent = '파일을 읽을 수 없습니다: ' + err.message; statusEl.className = 'status err';
+      return;
+    }
+
+    if(document.getElementById('bulkHasHeader').checked && rows.length > 0){
+      rows = rows.slice(1);
+    }
+    rows = rows
+      .map(r => ({ routeName: String(r[0]||'').trim(), stopName: String(r[1]||'').trim(), address: String(r[2]||'').trim() }))
+      .filter(r => r.routeName || r.stopName || r.address);
+
+    await processBulkRows(rows, {
+      progressEl, statusEl, btn: uploadBtn,
+      resetInput: () => { fileInput.value = ''; }
+    });
   });
 
   // ---------- check / judge ----------
