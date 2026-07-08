@@ -173,7 +173,7 @@
 
     <div style="margin-top:22px; border:1px dashed var(--line); border-radius:7px; padding:16px;">
       <h2 style="margin-bottom:6px;">엑셀로 한번에 등록</h2>
-      <p class="desc">엑셀(.xlsx/.csv) 파일의 A열=노선명, B열=탑승지명, C열=탑승지 주소로 순서대로 입력해서 업로드하세요. 같은 노선명은 자동으로 합쳐집니다.</p>
+      <p class="desc">엑셀(.xlsx/.csv) 파일의 A열=노선명, B열=탑승지명, C열=탑승지 주소 순서로 입력해서 업로드하세요. <b>C열(주소)은 비워도 됩니다</b> — 비어있으면 B열(탑승지명)을 그대로 검색해서 "인천대입구역"처럼 역명·건물명만으로도 자동으로 실제 주소를 찾습니다. 같은 노선명은 자동으로 합쳐집니다. 500건이면 몇 분 정도 걸릴 수 있어요.</p>
       <div class="row">
         <div class="field">
           <label>파일 선택</label>
@@ -283,18 +283,43 @@
   });
 
   // ---------- geocoding (Kakao) ----------
-  async function geocodeAddress(address){
+  // 1) 도로명/지번 주소 검색을 먼저 시도하고, 결과가 없으면
+  // 2) 키워드(장소) 검색으로 재시도한다 (역명·건물명·랜드마크 등에 유용).
+  async function geocodeAddress(query){
     if(!state.kakaoKey) throw new Error('카카오 API 키가 설정되지 않았습니다. (설정 탭)');
-    const url = 'https://dapi.kakao.com/v2/local/search/address.json?query=' + encodeURIComponent(address);
+    const addrResult = await kakaoAddressSearch(query);
+    if(addrResult) return addrResult;
+    const keywordResult = await kakaoKeywordSearch(query);
+    if(keywordResult) return keywordResult;
+    throw new Error('주소/장소를 찾을 수 없습니다: ' + query);
+  }
+
+  async function kakaoAddressSearch(query){
+    const url = 'https://dapi.kakao.com/v2/local/search/address.json?query=' + encodeURIComponent(query);
     const res = await fetch(url, { headers: { 'Authorization': 'KakaoAK ' + state.kakaoKey } });
     if(!res.ok){
       if(res.status === 401 || res.status === 403) throw new Error('카카오 API 인증 실패 (키 또는 도메인 등록 확인)');
-      throw new Error('카카오 API 오류: HTTP ' + res.status);
+      return null; // 주소로 못 찾은 경우로 간주하고 키워드 검색으로 폴백
     }
     const data = await res.json();
-    if(!data.documents || data.documents.length === 0) throw new Error('주소를 찾을 수 없습니다: ' + address);
+    if(!data.documents || data.documents.length === 0) return null;
     const doc = data.documents[0];
-    return { lat: parseFloat(doc.y), lng: parseFloat(doc.x) };
+    const resolvedAddress = doc.road_address ? doc.road_address.address_name : doc.address_name;
+    return { lat: parseFloat(doc.y), lng: parseFloat(doc.x), resolvedAddress, matchedBy: 'address' };
+  }
+
+  async function kakaoKeywordSearch(query){
+    const url = 'https://dapi.kakao.com/v2/local/search/keyword.json?query=' + encodeURIComponent(query);
+    const res = await fetch(url, { headers: { 'Authorization': 'KakaoAK ' + state.kakaoKey } });
+    if(!res.ok){
+      if(res.status === 401 || res.status === 403) throw new Error('카카오 API 인증 실패 (키 또는 도메인 등록 확인)');
+      return null;
+    }
+    const data = await res.json();
+    if(!data.documents || data.documents.length === 0) return null;
+    const doc = data.documents[0];
+    const resolvedAddress = doc.road_address_name || doc.address_name || doc.place_name;
+    return { lat: parseFloat(doc.y), lng: parseFloat(doc.x), resolvedAddress, placeName: doc.place_name, matchedBy: 'keyword' };
   }
 
   // ---------- distance ----------
@@ -473,10 +498,10 @@
       setRouteStatus(routeId, '좌표 변환 중...', false);
       try{
         const coord = await geocodeAddress(address);
-        route.stops.push({ id: genId(), name, address, lat: coord.lat, lng: coord.lng });
+        route.stops.push({ id: genId(), name, address: coord.resolvedAddress || address, lat: coord.lat, lng: coord.lng });
         saveRoutes();
         renderRoutes();
-        setRouteStatus(routeId, '탑승지가 추가되었습니다.', false);
+        setRouteStatus(routeId, coord.matchedBy === 'keyword' ? `탑승지가 추가되었습니다. (장소명으로 검색됨: ${coord.resolvedAddress})` : '탑승지가 추가되었습니다.', false);
       }catch(err){
         setRouteStatus(routeId, err.message, true);
       }
@@ -513,12 +538,14 @@
       if(!newName || !newAddress){ alert('이름과 주소를 모두 입력하세요.'); return; }
       btn.disabled = true; btn.textContent = '저장 중...';
       try{
+        let finalAddress = newAddress;
         if(newAddress !== stop.address){
           const coord = await geocodeAddress(newAddress);
           stop.lat = coord.lat; stop.lng = coord.lng;
+          finalAddress = coord.resolvedAddress || newAddress;
         }
         stop.name = newName;
-        stop.address = newAddress;
+        stop.address = finalAddress;
         saveRoutes();
         editingStop = null;
         renderRoutes();
@@ -592,24 +619,27 @@
     uploadBtn.disabled = true;
     const failed = [];
     let successCount = 0;
+    let keywordMatchCount = 0;
 
     for(let i=0; i<rows.length; i++){
       const row = rows[i];
       const rowNum = i + 1 + (document.getElementById('bulkHasHeader').checked ? 1 : 0);
       progressEl.textContent = `처리 중... (${i+1}/${rows.length}) ${row.routeName} / ${row.stopName}`;
 
-      if(!row.routeName || !row.stopName || !row.address){
-        failed.push(`${rowNum}행: 노선명/탑승지명/주소 중 빠진 값이 있음`);
+      if(!row.routeName || !row.stopName){
+        failed.push(`${rowNum}행: 노선명 또는 탑승지명이 비어 있음`);
         continue;
       }
+      const query = row.address || row.stopName; // 주소가 비어있으면 탑승지명으로 검색
       try{
-        const coord = await geocodeAddress(row.address);
+        const coord = await geocodeAddress(query);
+        if(coord.matchedBy === 'keyword') keywordMatchCount++;
         let route = state.routes.find(r => r.name === row.routeName);
         if(!route){
           route = { id: genId(), name: row.routeName, stops: [] };
           state.routes.push(route);
         }
-        route.stops.push({ id: genId(), name: row.stopName, address: row.address, lat: coord.lat, lng: coord.lng });
+        route.stops.push({ id: genId(), name: row.stopName, address: coord.resolvedAddress || query, lat: coord.lat, lng: coord.lng });
         successCount++;
       }catch(err){
         failed.push(`${rowNum}행 (${row.stopName}): ${err.message}`);
@@ -622,11 +652,15 @@
     uploadBtn.disabled = false;
     fileInput.value = '';
 
+    const keywordNote = keywordMatchCount > 0
+      ? ` (이 중 ${keywordMatchCount}건은 주소가 아닌 역명/장소명으로 검색되어 자동으로 실제 주소를 찾았습니다. 결과가 엉뚱한 곳이 없는지 목록에서 한 번 확인해보세요.)`
+      : '';
+
     if(failed.length === 0){
-      statusEl.textContent = `완료: ${successCount}건 모두 등록되었습니다.`;
+      statusEl.textContent = `완료: ${successCount}건 모두 등록되었습니다.${keywordNote}`;
       statusEl.className = 'status';
     }else{
-      statusEl.innerHTML = `${successCount}건 등록, ${failed.length}건 실패<br>` + failed.map(escapeHtml).join('<br>');
+      statusEl.innerHTML = `${successCount}건 등록, ${failed.length}건 실패${keywordNote}<br>` + failed.map(escapeHtml).join('<br>');
       statusEl.className = 'status err';
     }
   });
