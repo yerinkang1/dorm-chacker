@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>기숙사 입실 자격 판정 도구</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     --bg:#f6f7f5;
@@ -169,6 +170,28 @@
     </div>
     <button class="btn" id="addRouteBtn">노선 추가</button>
     <span class="status" id="routeStatus"></span>
+
+    <div style="margin-top:22px; border:1px dashed var(--line); border-radius:7px; padding:16px;">
+      <h2 style="margin-bottom:6px;">엑셀로 한번에 등록</h2>
+      <p class="desc">엑셀(.xlsx/.csv) 파일의 A열=노선명, B열=탑승지명, C열=탑승지 주소로 순서대로 입력해서 업로드하세요. 같은 노선명은 자동으로 합쳐집니다.</p>
+      <div class="row">
+        <div class="field">
+          <label>파일 선택</label>
+          <input type="file" id="bulkFileInput" accept=".xlsx,.xls,.csv">
+        </div>
+      </div>
+      <div class="row" style="align-items:center;">
+        <label style="display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink-soft); flex:none;">
+          <input type="checkbox" id="bulkHasHeader" checked style="width:auto;"> 첫 번째 행은 제목(헤더)이라 건너뛰기
+        </label>
+      </div>
+      <div class="row">
+        <button class="btn" id="bulkUploadBtn">일괄 등록 실행</button>
+        <button class="btn ghost" id="downloadTemplateBtn">샘플 양식 다운로드</button>
+      </div>
+      <div class="progress" id="bulkProgress"></div>
+      <div class="status" id="bulkStatus"></div>
+    </div>
 
     <div style="margin-top:20px;" id="routeList"></div>
   </section>
@@ -520,6 +543,93 @@
   });
 
   renderRoutes();
+
+  // ---------- bulk upload (엑셀/CSV로 노선·탑승지 한번에 등록) ----------
+  document.getElementById('downloadTemplateBtn').addEventListener('click', ()=>{
+    const wsData = [
+      ['노선명', '탑승지명', '탑승지 주소'],
+      ['1호차 (강남·판교 방면)', '강남역 3번 출구', '서울 강남구 강남대로 396'],
+      ['1호차 (강남·판교 방면)', '판교역', '경기 성남시 분당구 판교역로 235'],
+      ['2호차 (송파 방면)', '잠실역', '서울 송파구 올림픽로 300']
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, '탑승지');
+    XLSX.writeFile(wb, '셔틀탑승지_등록양식.xlsx');
+  });
+
+  document.getElementById('bulkUploadBtn').addEventListener('click', async ()=>{
+    const fileInput = document.getElementById('bulkFileInput');
+    const progressEl = document.getElementById('bulkProgress');
+    const statusEl = document.getElementById('bulkStatus');
+    const uploadBtn = document.getElementById('bulkUploadBtn');
+    statusEl.textContent = ''; statusEl.className = 'status';
+
+    const file = fileInput.files && fileInput.files[0];
+    if(!file){ statusEl.textContent = '파일을 먼저 선택하세요.'; statusEl.className = 'status err'; return; }
+    if(!state.kakaoKey){ statusEl.textContent = '카카오 API 키가 설정되지 않았습니다. (설정 탭)'; statusEl.className = 'status err'; return; }
+
+    let rows;
+    try{
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    }catch(err){
+      statusEl.textContent = '파일을 읽을 수 없습니다: ' + err.message; statusEl.className = 'status err';
+      return;
+    }
+
+    if(document.getElementById('bulkHasHeader').checked && rows.length > 0){
+      rows = rows.slice(1);
+    }
+    rows = rows
+      .map(r => ({ routeName: String(r[0]||'').trim(), stopName: String(r[1]||'').trim(), address: String(r[2]||'').trim() }))
+      .filter(r => r.routeName || r.stopName || r.address);
+
+    if(rows.length === 0){ statusEl.textContent = '처리할 행이 없습니다. 양식을 확인하세요.'; statusEl.className = 'status err'; return; }
+
+    uploadBtn.disabled = true;
+    const failed = [];
+    let successCount = 0;
+
+    for(let i=0; i<rows.length; i++){
+      const row = rows[i];
+      const rowNum = i + 1 + (document.getElementById('bulkHasHeader').checked ? 1 : 0);
+      progressEl.textContent = `처리 중... (${i+1}/${rows.length}) ${row.routeName} / ${row.stopName}`;
+
+      if(!row.routeName || !row.stopName || !row.address){
+        failed.push(`${rowNum}행: 노선명/탑승지명/주소 중 빠진 값이 있음`);
+        continue;
+      }
+      try{
+        const coord = await geocodeAddress(row.address);
+        let route = state.routes.find(r => r.name === row.routeName);
+        if(!route){
+          route = { id: genId(), name: row.routeName, stops: [] };
+          state.routes.push(route);
+        }
+        route.stops.push({ id: genId(), name: row.stopName, address: row.address, lat: coord.lat, lng: coord.lng });
+        successCount++;
+      }catch(err){
+        failed.push(`${rowNum}행 (${row.stopName}): ${err.message}`);
+      }
+    }
+
+    saveRoutes();
+    renderRoutes();
+    progressEl.textContent = '';
+    uploadBtn.disabled = false;
+    fileInput.value = '';
+
+    if(failed.length === 0){
+      statusEl.textContent = `완료: ${successCount}건 모두 등록되었습니다.`;
+      statusEl.className = 'status';
+    }else{
+      statusEl.innerHTML = `${successCount}건 등록, ${failed.length}건 실패<br>` + failed.map(escapeHtml).join('<br>');
+      statusEl.className = 'status err';
+    }
+  });
 
   // ---------- check / judge ----------
   function parseInputLines(raw){
