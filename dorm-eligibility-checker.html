@@ -152,6 +152,10 @@
           <label>입실 가능 기준 (분)</label>
           <input type="text" id="thresholdMin" value="30">
         </div>
+        <div class="field">
+          <label>인근 탑승지 표시 기준 (도보 분)</label>
+          <input type="text" id="nearbyMin" value="20">
+        </div>
       </div>
     </div>
   </section>
@@ -169,6 +173,22 @@
     </div>
     <button class="btn" id="addRouteBtn">노선 추가</button>
     <span class="status" id="routeStatus"></span>
+
+    <div style="margin-top:22px; border:1px solid var(--line); border-radius:7px; padding:16px; background:#fafaf8;">
+      <h2 style="margin-bottom:6px;">데이터 백업 / 복원</h2>
+      <p class="desc">노선·탑승지 데이터는 이 브라우저에만 저장됩니다. 브라우저 데이터가 지워지거나 다른 PC로 옮기실 경우를 대비해 주기적으로 백업해두세요.</p>
+      <div class="row">
+        <button class="btn secondary" id="backupDownloadBtn">백업 파일 다운로드</button>
+      </div>
+      <div class="field" style="margin-top:12px;">
+        <label>백업 복원 (백업 파일을 텍스트 편집기로 열어 내용을 통째로 복사해서 붙여넣으세요)</label>
+        <textarea id="backupRestoreArea" rows="4" placeholder='[{"id":"...","name":"1호차","stops":[...]}]'></textarea>
+      </div>
+      <div class="row">
+        <button class="btn ghost" id="backupRestoreBtn">이 내용으로 복원 (현재 데이터를 덮어씁니다)</button>
+      </div>
+      <div class="status" id="backupStatus"></div>
+    </div>
 
     <div style="margin-top:22px; border:1px dashed var(--line); border-radius:7px; padding:16px;">
       <h2 style="margin-bottom:6px;">엑셀 표 붙여넣기로 한번에 등록</h2>
@@ -240,7 +260,7 @@
   "use strict";
 
   // ---------- storage ----------
-  const LS_KEYS = {kakao:'dorm_kakao_key', odsay:'dorm_odsay_key', routes:'dorm_shuttle_routes', legacyStops:'dorm_shuttle_stops', threshold:'dorm_threshold_min'};
+  const LS_KEYS = {kakao:'dorm_kakao_key', odsay:'dorm_odsay_key', routes:'dorm_shuttle_routes', legacyStops:'dorm_shuttle_stops', threshold:'dorm_threshold_min', nearbyMin:'dorm_nearby_min'};
   function lsGet(key, fallback){
     try{ const v = localStorage.getItem(key); return v===null ? fallback : v; }
     catch(e){ return fallback; }
@@ -300,6 +320,7 @@
     odsayKey: lsGet(LS_KEYS.odsay, ''),
     routes: loadRoutes(),
     threshold: parseInt(lsGet(LS_KEYS.threshold, '30'), 10) || 30,
+    nearbyMin: parseInt(lsGet(LS_KEYS.nearbyMin, '20'), 10) || 20,
     results: []
   };
   function saveRoutes(){ lsSet(LS_KEYS.routes, JSON.stringify(state.routes)); }
@@ -319,14 +340,17 @@
   document.getElementById('kakaoKey').value = state.kakaoKey;
   document.getElementById('odsayKey').value = state.odsayKey;
   document.getElementById('thresholdMin').value = state.threshold;
+  document.getElementById('nearbyMin').value = state.nearbyMin;
 
   document.getElementById('saveKeysBtn').addEventListener('click', ()=>{
     state.kakaoKey = document.getElementById('kakaoKey').value.trim();
     state.odsayKey = document.getElementById('odsayKey').value.trim();
     state.threshold = parseInt(document.getElementById('thresholdMin').value, 10) || 30;
+    state.nearbyMin = parseInt(document.getElementById('nearbyMin').value, 10) || 20;
     lsSet(LS_KEYS.kakao, state.kakaoKey);
     lsSet(LS_KEYS.odsay, state.odsayKey);
     lsSet(LS_KEYS.threshold, String(state.threshold));
+    lsSet(LS_KEYS.nearbyMin, String(state.nearbyMin));
     const s = document.getElementById('keyStatus');
     s.textContent = '저장되었습니다.';
     s.className = 'status';
@@ -407,6 +431,18 @@
       if(d < bestDist){ bestDist = d; best = s; }
     }
     return { stop: best, distanceMeters: bestDist };
+  }
+
+  // 도보 maxMinutes 이내에 있는 모든 탑승지를 가까운 순으로 반환 (판정 기준이 아니라 참고용 정보 제공)
+  function findStopsWithinWalk(lat, lng, maxMinutes){
+    const flat = allStopsFlat();
+    return flat
+      .map(s => {
+        const distanceMeters = haversineMeters(lat, lng, s.lat, s.lng);
+        return { stop: s, distanceMeters, walkMinutes: estimateWalkMinutes(distanceMeters) };
+      })
+      .filter(item => item.walkMinutes <= maxMinutes)
+      .sort((a, b) => a.distanceMeters - b.distanceMeters);
   }
 
   // ---------- transit (ODsay), no-transfer routes only ----------
@@ -622,6 +658,50 @@
 
   renderRoutes();
 
+  // ---------- 데이터 백업 / 복원 ----------
+  document.getElementById('backupDownloadBtn').addEventListener('click', ()=>{
+    const json = JSON.stringify(state.routes, null, 2);
+    const blob = new Blob([json], { type: 'application/json;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '기숙사_셔틀탑승지_백업_' + new Date().toISOString().slice(0,10) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  document.getElementById('backupRestoreBtn').addEventListener('click', ()=>{
+    const statusEl = document.getElementById('backupStatus');
+    const raw = document.getElementById('backupRestoreArea').value.trim();
+    if(!raw){ statusEl.textContent = '복원할 내용을 붙여넣으세요.'; statusEl.className = 'status err'; return; }
+    let parsed;
+    try{
+      parsed = JSON.parse(raw);
+    }catch(err){
+      statusEl.textContent = '올바른 JSON 형식이 아닙니다. 백업 파일 내용을 그대로 복사했는지 확인하세요.';
+      statusEl.className = 'status err';
+      return;
+    }
+    if(!Array.isArray(parsed)){
+      statusEl.textContent = '백업 데이터 형식이 올바르지 않습니다 (노선 배열이어야 함).';
+      statusEl.className = 'status err';
+      return;
+    }
+    const currentCount = state.routes.reduce((sum, r) => sum + r.stops.length, 0);
+    const newCount = parsed.reduce((sum, r) => sum + (r.stops ? r.stops.length : 0), 0);
+    if(!confirm(`현재 저장된 탑승지 ${currentCount}곳이 백업 데이터의 탑승지 ${newCount}곳으로 완전히 대체됩니다. 계속할까요?`)){
+      return;
+    }
+    state.routes = parsed;
+    saveRoutes();
+    renderRoutes();
+    document.getElementById('backupRestoreArea').value = '';
+    statusEl.textContent = `복원 완료: 노선 ${parsed.length}개, 탑승지 ${newCount}곳`;
+    statusEl.className = 'status';
+  });
+
   // ---------- bulk upload (엑셀/CSV로 노선·탑승지 한번에 등록) ----------
   document.getElementById('downloadTemplateBtn').addEventListener('click', async ()=>{
     const statusEl = document.getElementById('bulkStatus');
@@ -806,12 +886,12 @@
       wrap.innerHTML = '<div class="empty">판정 결과가 없습니다.</div>';
       return;
     }
-    const rows = state.results.map(r=>{
+    const rows = state.results.map((r, idx)=>{
       if(r.error){
         return `<tr>
           <td>${escapeHtml(r.name||'-')}</td>
           <td>${escapeHtml(r.address)}</td>
-          <td colspan="6" style="color:#a3352b;">오류: ${escapeHtml(r.error)}</td>
+          <td colspan="7" style="color:#a3352b;">오류: ${escapeHtml(r.error)}</td>
         </tr>`;
       }
       const pill = r.eligible
@@ -822,6 +902,13 @@
       const transitCell = r.transit.available
         ? r.transit.minutes + '분'
         : `<span style="color:#9aa4a2;">${escapeHtml(r.transit.reason||'해당없음')}</span>`;
+      const nearbyStops = r.nearbyStops || [];
+      const nearbyCell = nearbyStops.length > 0
+        ? `<button class="btn ghost small" data-action="toggle-nearby" data-idx="${idx}">${nearbyStops.length}곳 보기</button>`
+        : `<span style="color:#9aa4a2;">0곳</span>`;
+      const nearbyListHtml = nearbyStops.map(n =>
+        `<li>${escapeHtml(n.stop.name)} <span class="meta">(${escapeHtml(n.stop.routeName)} · ${n.distanceMeters.toFixed(0)}m · 도보 약 ${n.walkMinutes}분)</span></li>`
+      ).join('');
       return `<tr>
         <td>${escapeHtml(r.name||'-')}</td>
         <td>${escapeHtml(r.address)}</td>
@@ -831,12 +918,18 @@
         <td class="num">${r.walkMinutes}분</td>
         <td class="num">${transitCell}</td>
         <td>${pill}${fallbackNote}</td>
+        <td>${nearbyCell}</td>
+      </tr>
+      <tr class="nearby-detail-row" data-detail-idx="${idx}" style="display:none;">
+        <td colspan="9" style="background:#fafaf8;">
+          <ul style="margin:2px 0; padding-left:18px; font-size:12.3px;">${nearbyListHtml}</ul>
+        </td>
       </tr>`;
     }).join('');
     wrap.innerHTML = `<table>
       <thead><tr>
         <th>이름</th><th>주소</th><th>노선</th><th>최근접 탑승지</th><th>직선거리</th>
-        <th>도보(추정)</th><th>대중교통(무환승)</th><th>판정</th>
+        <th>도보(추정)</th><th>대중교통(무환승)</th><th>판정</th><th>도보 ${state.nearbyMin}분 이내 탑승지</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
@@ -861,6 +954,7 @@
         const nearest = findNearestStop(coord.lat, coord.lng);
         const walkMinutes = estimateWalkMinutes(nearest.distanceMeters);
         const transit = await getTransitNoTransfer(coord.lat, coord.lng, nearest.stop.lat, nearest.stop.lng);
+        const nearbyStops = findStopsWithinWalk(coord.lat, coord.lng, state.nearbyMin);
         // 판정 규칙: 도보와 대중교통(무환승) 둘 다 기준 이상이어야 입실 가능(둘 중 하나라도 미만이면 불가).
         // 단, 무환승 대중교통 경로 자체가 없는 경우(거리가 가깝거나 대중교통 미비 지역)에는
         // 대중교통 조건은 제외하고 도보 소요시간만으로 판정한다.
@@ -872,7 +966,7 @@
           routeName: nearest.stop.routeName,
           stopName: nearest.stop.name,
           distanceMeters: nearest.distanceMeters,
-          walkMinutes, transit, eligible
+          walkMinutes, transit, eligible, nearbyStops
         });
       }catch(err){
         state.results.push({ name: entry.name, address: entry.address, error: err.message });
@@ -894,20 +988,24 @@
   });
 
   document.getElementById('exportBtn').addEventListener('click', ()=>{
-    const header = ['이름','주소','노선','최근접탑승지','직선거리(m)','도보소요(분,추정)','대중교통소요(분,무환승)','판정','비고'];
+    const header = ['이름','주소','노선','최근접탑승지','직선거리(m)','도보소요(분,추정)','대중교통소요(분,무환승)','판정','비고', `도보${state.nearbyMin}분이내탑승지수`, `도보${state.nearbyMin}분이내탑승지목록`];
     const lines = [header.join(',')];
     for(const r of state.results){
       if(r.error){
-        lines.push([r.name, r.address, '', '', '', '', '', '오류', r.error].map(csvEscape).join(','));
+        lines.push([r.name, r.address, '', '', '', '', '', '오류', r.error, '', ''].map(csvEscape).join(','));
         continue;
       }
+      const nearbyStops = r.nearbyStops || [];
+      const nearbyList = nearbyStops.map(n => `${n.stop.name}(${n.distanceMeters.toFixed(0)}m/${n.walkMinutes}분)`).join('; ');
       lines.push([
         r.name, r.address, r.routeName, r.stopName,
         r.distanceMeters.toFixed(0),
         r.walkMinutes,
         r.transit.available ? r.transit.minutes : '',
         r.eligible ? '입실가능' : '입실불가',
-        r.transit.available ? '' : (r.transit.reason || '')
+        r.transit.available ? '' : (r.transit.reason || ''),
+        nearbyStops.length,
+        nearbyList
       ].map(csvEscape).join(','));
     }
     const csv = '\uFEFF' + lines.join('\r\n');
@@ -926,6 +1024,17 @@
     if(/[",\n]/.test(s)) return '"' + s.replace(/"/g,'""') + '"';
     return s;
   }
+
+  document.getElementById('resultWrap').addEventListener('click', (e)=>{
+    const btn = e.target.closest('button[data-action="toggle-nearby"]');
+    if(!btn) return;
+    const idx = btn.dataset.idx;
+    const detailRow = document.querySelector(`tr.nearby-detail-row[data-detail-idx="${idx}"]`);
+    if(!detailRow) return;
+    const isHidden = detailRow.style.display === 'none';
+    detailRow.style.display = isHidden ? '' : 'none';
+    btn.textContent = (isHidden ? '접기' : (state.results[idx].nearbyStops.length + '곳 보기'));
+  });
 
   renderResults();
 })();
